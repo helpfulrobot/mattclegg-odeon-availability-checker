@@ -2,237 +2,229 @@
 
 use Sunra\PhpSimple\HtmlDomParser;
 
-class OdeonPage extends Page {
-
+class OdeonPage extends Page
+{
 }
 
-class OdeonPage_Controller extends Page_Controller {
+class OdeonPage_Controller extends Page_Controller
+{
 
 
-	private static $allowed_actions = array(
-		'check'
-	);
+    private static $allowed_actions = array(
+        'check'
+    );
 
-	private $OdeonCinema = false;
-	private $OdeonFilm = false;
+    private $OdeonCinema = false;
+    private $OdeonFilm = false;
 
-	public function init() {
-		parent::init();
-		// You can include any CSS or JS required by your project here.
-		// See: http://doc.silverstripe.org/framework/en/reference/requirements
-	}
+    public function init()
+    {
+        parent::init();
+        // You can include any CSS or JS required by your project here.
+        // See: http://doc.silverstripe.org/framework/en/reference/requirements
+    }
 
-	public function check() {
+    public function check()
+    {
+        $OdeonCinemaID = (int)$this->request->param("ID");
 
-		$OdeonCinemaID = (int)$this->request->param("ID");
+        if ($OdeonCinemaID) {
+            if ($this->OdeonCinema = OdeonCinema::get_by_id("OdeonCinema", $OdeonCinemaID)) {
+                $this->OdeonCinema->getCurrentFilms();
 
-		if($OdeonCinemaID) {
-			if($this->OdeonCinema = OdeonCinema::get_by_id("OdeonCinema", $OdeonCinemaID)) {
+                $OdeonFilmID = (int)$this->request->param("OtherID");
 
-				$this->OdeonCinema->getCurrentFilms();
+                if ($OdeonFilmID) {
+                    if ($this->OdeonFilm = OdeonFilm::get_by_id("OdeonFilm", $OdeonFilmID)) {
+                        $maxdays = 15;
 
-				$OdeonFilmID = (int)$this->request->param("OtherID");
+                        $baseURL = "https://www.odeon.co.uk/";
 
-				if($OdeonFilmID){
+                        $date = new Date();
+                        $RestfulService = new RestfulService($baseURL);
 
-					if($this->OdeonFilm = OdeonFilm::get_by_id("OdeonFilm", $OdeonFilmID)) {
+                        $i = 0;
+                        do {
+                            $date->setValue("+{$i} day");
 
-						$maxdays = 15;
+                            if (!OdeonScreening::get("OdeonScreening", implode(" AND ", array(
+                                "DATE_FORMAT(ScreeningTime,'%d%m%y') = '{$date->Format("dmy")}'",
+                                "FilmID='{$OdeonFilmID}'",
+                                "CinemaID='{$OdeonCinemaID}'",
+                            )))->Count()) {
+                                $query = array(
+                                    'date'            => $date->Format("Y-m-d"),
+                                    'siteId'        => $OdeonCinemaID,
+                                    'filmMasterId'    => $OdeonFilmID,
+                                    'type' => 'DAY'
+                                );
 
-						$baseURL = "https://www.odeon.co.uk/";
+                                $RestfulService->setQueryString($query);
+                                $Response = $RestfulService->request("showtimes/day");
 
-						$date = new Date();
-						$RestfulService = new RestfulService($baseURL);
+                                if (!$Response->isError()) {
+                                    $html = HtmlDomParser::str_get_html($Response->getBody());
+                                    foreach ($html->find('ul') as $ul) {
+                                        foreach ($ul->find('li') as $li) {
+                                            $ScreeningTime = new SS_Datetime();
+                                            $ScreeningTime->setValue("{$date->Format("Y-m-d")} {$li->find('a', 0)->innertext}:00");
 
-						$i = 0;
-						do {
-							$date->setValue("+{$i} day");
+                                            $checkAgainstAPI = true;
 
-							if(!OdeonScreening::get("OdeonScreening", implode(" AND ", array(
-								"DATE_FORMAT(ScreeningTime,'%d%m%y') = '{$date->Format("dmy")}'",
-								"FilmID='{$OdeonFilmID}'",
-								"CinemaID='{$OdeonCinemaID}'",
-							)))->Count()){
+                                            if ($OdeonScreening=OdeonScreening::get_one("OdeonScreening", implode(" AND ",
+                                                array(
+                                                    "CinemaID='{$OdeonCinemaID}'",
+                                                    "FilmID='{$OdeonFilmID}'",
+                                                    "ScreeningTime='{$ScreeningTime->Rfc2822()}'"
+                                                )))) {
+                                                $checkAgainstAPI = $OdeonScreening->checkAgainstAPI();
+                                            } else {
+                                                $OdeonScreening = new OdeonScreening();
+                                                $OdeonScreening->CinemaID = $OdeonCinemaID;
+                                                $OdeonScreening->FilmID = $OdeonFilmID;
+                                                $OdeonScreening->ScreeningTime=$ScreeningTime->Rfc2822();
+                                            }
 
-								$query = array(
-									'date'			=> $date->Format("Y-m-d"),
-									'siteId'		=> $OdeonCinemaID,
-									'filmMasterId'	=> $OdeonFilmID,
-									'type' => 'DAY'
-								);
+                                            if ($checkAgainstAPI) {
+                                                $URLSegment = str_replace($baseURL, "", $li->find('a', 0)->href);
 
-								$RestfulService->setQueryString($query);
-								$Response = $RestfulService->request("showtimes/day");
-
-								if(!$Response->isError()) {
-
-									$html = HtmlDomParser::str_get_html($Response->getBody());
-									foreach($html->find('ul') as $ul) {
-										foreach($ul->find('li') as $li) {
-
-											$ScreeningTime = new SS_Datetime();
-											$ScreeningTime->setValue("{$date->Format("Y-m-d")} {$li->find('a', 0)->innertext}:00");
-
-											$checkAgainstAPI = true;
-
-											if($OdeonScreening=OdeonScreening::get_one("OdeonScreening",implode(" AND ",
-												array(
-													"CinemaID='{$OdeonCinemaID}'",
-													"FilmID='{$OdeonFilmID}'",
-													"ScreeningTime='{$ScreeningTime->Rfc2822()}'"
-												)))) {
-
-												$checkAgainstAPI = $OdeonScreening->checkAgainstAPI();
-
-											} else {
-												$OdeonScreening = new OdeonScreening();
-												$OdeonScreening->CinemaID = $OdeonCinemaID;
-												$OdeonScreening->FilmID = $OdeonFilmID;
-												$OdeonScreening->ScreeningTime=$ScreeningTime->Rfc2822();
-											}
-
-											if($checkAgainstAPI) {
-
-												$URLSegment = str_replace($baseURL, "", $li->find('a', 0)->href);
-
-												$Response_init = $RestfulService->request($URLSegment, "GET", null, null, array(
-													CURLOPT_COOKIESESSION=>TRUE
-												));
+                                                $Response_init = $RestfulService->request($URLSegment, "GET", null, null, array(
+                                                    CURLOPT_COOKIESESSION=>true
+                                                ));
 
 
-												if(!$Response_init->isError()){
+                                                if (!$Response_init->isError()) {
+                                                    $dom = new DOMDocument();
+                                                    $dom->strictErrorChecking = false;
+                                                    libxml_use_internal_errors(true);
+                                                    $dom->loadHTML($Response_init->getBody());
+                                                    libxml_clear_errors();
 
-													$dom = new DOMDocument();
-													$dom->strictErrorChecking = FALSE;
-													libxml_use_internal_errors(true);
-													$dom->loadHTML($Response_init->getBody());
-													libxml_clear_errors();
+                                                    $nodes = $dom->getElementsByTagName('form');
+                                                    $submit_url = false;
 
-													$nodes = $dom->getElementsByTagName('form');
-													$submit_url = false;
+                                                    $hidden_inputs = array();
+                                                    foreach ($nodes as $node) {
+                                                        if (!$submit_url && $node->hasAttributes()) {
+                                                            foreach ($node->attributes as $attribute) {
+                                                                if (!$submit_url && $attribute->nodeName == 'action') {
+                                                                    $submit_url = $attribute->nodeValue;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    unset($node);
 
-													$hidden_inputs = array();
-													foreach($nodes as $node) {
-														if(!$submit_url && $node->hasAttributes()) {
-															foreach($node->attributes as $attribute) {
-																if(!$submit_url && $attribute->nodeName == 'action') {
-																	$submit_url = $attribute->nodeValue;
-																}
-															}
-														}
-													} unset($node);
-
-													$SubmitURL = ltrim($submit_url, '/');
-
-
-													$Cookies = $Response_init->getHeader("Set-Cookie");
-
-													if(is_array($Cookies)) {
-														$Cookies = implode(';', $Cookies);
-													}
-
-													$Response_availability = $RestfulService->request($SubmitURL, "GET", null, null, array(
-														CURLOPT_COOKIE=>$Cookies
-													));
-
-													if(!$Response_availability->isError()){
-
-														$html_availability = HtmlDomParser::str_get_html($Response_availability->getBody());
-
-														$ticketsTable = $html_availability->find('#tickets-table', 0);
-
-														if($ticketsTable) {
-
-															$ticketsForm = $html_availability->find('#tickets', 0);
-
-															$data = array(
-																"submit"=>null
-															);
-
-															foreach($ticketsTable->find('select') as $select) {
-																$data[$select->attr["name"]] = "0";
-															}
-
-															foreach($ticketsTable->find('tr') as $tr) {
-																foreach($tr->find('td') as $td) {
-																	switch($td->getAttribute("class")) {
-																		case "ticket-col":
-																			$OdeonScreening->Title = trim($td->innertext);
-																			break;
-																		case "price-col":
-																			$OdeonScreening->Cost = ltrim(explode(" ", trim($td->plaintext))[0], '£');
-																			break;
-																		case "quantity-col":
-
-																			$Availability = 1;
-
-																			foreach($td->find('select') as $select) {
-																				foreach($select->find('option') as $option) {
-																					$Availability = $option->attr["value"];
-																				}
-																				$data[$select->attr["name"]] = $Availability;
-																			}
-
-																			$Response_seats = $RestfulService->request(ltrim(html_entity_decode($ticketsForm->attr['action']), "/"), "POST", $data, null, array(
-																				CURLOPT_COOKIE=>$Cookies
-																			));
-
-																			if(!$Response_seats->isError()){
-																				$html_seats = HtmlDomParser::str_get_html($Response_seats->getBody());
-
-																				if(trim($html_seats->find('.step-headline',0)->innertext) == "Choose your seats") {
-																					$OdeonScreening->Availability = $Availability;
-																					$OdeonScreening->SessionURL = $URLSegment;
-																					$OdeonScreening->duplicate();
-																				}
-																			}
-																			break;
-																	}
-																}
+                                                    $SubmitURL = ltrim($submit_url, '/');
 
 
-															}
-														}
-													}
-												}
-											}
-										}
-									}
-								} else {
-									Debug::show($query);
-									Debug::show($Response);
-								}
-							}
-							$i++;
-						} while ($i < $maxdays);
+                                                    $Cookies = $Response_init->getHeader("Set-Cookie");
 
-					} else {
-						echo "Not a valid film ID";
-					}
-				}
-			} else {
-				echo "Not a valid cinema ID";
-			}
-		}
-		return $this;
-	}
+                                                    if (is_array($Cookies)) {
+                                                        $Cookies = implode(';', $Cookies);
+                                                    }
 
-	public function CurrentCinema() {
-		return $this->OdeonCinema;
-	}
-	public function CurrentFilm() {
-		return $this->OdeonFilm;
-	}
-	public function CurrentScreenings() {
-		return GroupedList::create($this->CurrentFilm()->Screenings()->filter(array("CinemaID"=>$this->CurrentCinema()->ID)));
-	}
+                                                    $Response_availability = $RestfulService->request($SubmitURL, "GET", null, null, array(
+                                                        CURLOPT_COOKIE=>$Cookies
+                                                    ));
 
-	public function AllCinemas() {
-		return OdeonCinema::get()->exclude(array("ID"=>"1"))->sort("Title");
-	}
+                                                    if (!$Response_availability->isError()) {
+                                                        $html_availability = HtmlDomParser::str_get_html($Response_availability->getBody());
 
-	private function AllFilms() {
-		return OdeonFilm::get();
-	}
+                                                        $ticketsTable = $html_availability->find('#tickets-table', 0);
 
+                                                        if ($ticketsTable) {
+                                                            $ticketsForm = $html_availability->find('#tickets', 0);
+
+                                                            $data = array(
+                                                                "submit"=>null
+                                                            );
+
+                                                            foreach ($ticketsTable->find('select') as $select) {
+                                                                $data[$select->attr["name"]] = "0";
+                                                            }
+
+                                                            foreach ($ticketsTable->find('tr') as $tr) {
+                                                                foreach ($tr->find('td') as $td) {
+                                                                    switch ($td->getAttribute("class")) {
+                                                                        case "ticket-col":
+                                                                            $OdeonScreening->Title = trim($td->innertext);
+                                                                            break;
+                                                                        case "price-col":
+                                                                            $OdeonScreening->Cost = ltrim(explode(" ", trim($td->plaintext))[0], '£');
+                                                                            break;
+                                                                        case "quantity-col":
+
+                                                                            $Availability = 1;
+
+                                                                            foreach ($td->find('select') as $select) {
+                                                                                foreach ($select->find('option') as $option) {
+                                                                                    $Availability = $option->attr["value"];
+                                                                                }
+                                                                                $data[$select->attr["name"]] = $Availability;
+                                                                            }
+
+                                                                            $Response_seats = $RestfulService->request(ltrim(html_entity_decode($ticketsForm->attr['action']), "/"), "POST", $data, null, array(
+                                                                                CURLOPT_COOKIE=>$Cookies
+                                                                            ));
+
+                                                                            if (!$Response_seats->isError()) {
+                                                                                $html_seats = HtmlDomParser::str_get_html($Response_seats->getBody());
+
+                                                                                if (trim($html_seats->find('.step-headline', 0)->innertext) == "Choose your seats") {
+                                                                                    $OdeonScreening->Availability = $Availability;
+                                                                                    $OdeonScreening->SessionURL = $URLSegment;
+                                                                                    $OdeonScreening->duplicate();
+                                                                                }
+                                                                            }
+                                                                            break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Debug::show($query);
+                                    Debug::show($Response);
+                                }
+                            }
+                            $i++;
+                        } while ($i < $maxdays);
+                    } else {
+                        echo "Not a valid film ID";
+                    }
+                }
+            } else {
+                echo "Not a valid cinema ID";
+            }
+        }
+        return $this;
+    }
+
+    public function CurrentCinema()
+    {
+        return $this->OdeonCinema;
+    }
+    public function CurrentFilm()
+    {
+        return $this->OdeonFilm;
+    }
+    public function CurrentScreenings()
+    {
+        return GroupedList::create($this->CurrentFilm()->Screenings()->filter(array("CinemaID"=>$this->CurrentCinema()->ID)));
+    }
+
+    public function AllCinemas()
+    {
+        return OdeonCinema::get()->exclude(array("ID"=>"1"))->sort("Title");
+    }
+
+    private function AllFilms()
+    {
+        return OdeonFilm::get();
+    }
 }

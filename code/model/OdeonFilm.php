@@ -15,13 +15,14 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-class OdeonFilm extends DataObject {
-	private static $db = array(
-		'Title'=>'HTMLText',
-		'Content'=>'Text',
-		'imageUrlSmall'=>'varchar(2083)'
-	);
-	private static $has_many = array(
-		'Screenings'=>'OdeonScreening'
-	);
+class OdeonFilm extends DataObject
+{
+    private static $db = array(
+        'Title'=>'HTMLText',
+        'Content'=>'Text',
+        'imageUrlSmall'=>'varchar(2083)'
+    );
+    private static $has_many = array(
+        'Screenings'=>'OdeonScreening'
+    );
 }

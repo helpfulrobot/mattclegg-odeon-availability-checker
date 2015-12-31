@@ -17,112 +17,113 @@
 
 use Sunra\PhpSimple\HtmlDomParser;
 
-class OdeonCinema extends DataObject {
+class OdeonCinema extends DataObject
+{
 
-	private static $db = array(
-		'Title'=>'Text',
-		'Address'=>'Text',
-		'lat'=>'Text',
-		'lng'=>'Text'
-	);
+    private static $db = array(
+        'Title'=>'Text',
+        'Address'=>'Text',
+        'lat'=>'Text',
+        'lng'=>'Text'
+    );
 
-	private static $has_many = array(
-		'Screenings'=>'OdeonScreening'
-	);
+    private static $has_many = array(
+        'Screenings'=>'OdeonScreening'
+    );
 
-	public function Link() {
-		return OdeonPage::get_one("OdeonPage")->Link("check/{$this->ID}");
-	}
+    public function Link()
+    {
+        return OdeonPage::get_one("OdeonPage")->Link("check/{$this->ID}");
+    }
 
-	public function getCurrentFilms() {
+    public function getCurrentFilms()
+    {
+        $r = new ArrayList();
 
-		$r = new ArrayList();
+        //$RestfulService = new RestfulService("http://www.odeon.co.uk/api/uk/v2/cinemas/cinema/{$this->ID}/filmswithdetails.json");
 
-		//$RestfulService = new RestfulService("http://www.odeon.co.uk/api/uk/v2/cinemas/cinema/{$this->ID}/filmswithdetails.json");
+        $RestfulService = new RestfulService("http://www.odeon.co.uk/api/uk/v2/cinemas/cinema/{$this->ID}/", 259200);
 
-		$RestfulService = new RestfulService("http://www.odeon.co.uk/api/uk/v2/cinemas/cinema/{$this->ID}/", 259200);
+        $Response = $RestfulService->request("filmswithdetails.json");
+        if (!$Response->isError()) {
+            $films = Convert::json2array($Response->getBody());
+            foreach ($films as $film) {
+                $OdeonFilm = OdeonFilm::get_by_id('OdeonFilm', (int)$film['masterId']);
+                if (!$OdeonFilm) {
+                    $OdeonFilm = new OdeonFilm();
+                    $OdeonFilm->ID = (int)$film['masterId'];
+                    $OdeonFilm->Title = Convert::raw2sql($film['title']);
+                    if (isset($film['media']['imageUrl400'])) {
+                        $OdeonFilm->imageUrlSmall = Convert::raw2sql($film['media']['imageUrl400']);
+                    }
+                    if (isset($film['casts'])) {
+                        $OdeonFilm->Content = Convert::raw2sql($film['casts']);
+                    }
+                    $OdeonFilm->write();
+                }
+                $r->push($OdeonFilm);
+            }
+        }
+        return $r->sort("Title DESC");
+    }
 
-		$Response = $RestfulService->request("filmswithdetails.json");
-		if(!$Response->isError()){
+    public function updateAddress()
+    {
+        $RestfulService = new RestfulService("https://www.odeon.co.uk/cinemas/odeon/", 315360);
 
-			$films = Convert::json2array($Response->getBody());
-			foreach($films as $film) {
+        $Response = $RestfulService->request($this->ID);
+        if (!$Response->isError()) {
+            $html = HtmlDomParser::str_get_html($Response->getBody());
+            $cinema = $html->find('div[id="gethere"]', 0);
+            foreach ($cinema->find('.span4') as $span4) {
+                foreach ($span4->find('p.description') as $description) {
+                    $address = implode(', ', preg_split('/\s+\s+/', trim($description->plaintext)));
 
-				$OdeonFilm = OdeonFilm::get_by_id('OdeonFilm', (int)$film['masterId']);
-				if(!$OdeonFilm) {
-					$OdeonFilm = new OdeonFilm();
-					$OdeonFilm->ID = (int)$film['masterId'];
-					$OdeonFilm->Title = Convert::raw2sql($film['title']);
-					if(isset($film['media']['imageUrl400'])) {
-						$OdeonFilm->imageUrlSmall = Convert::raw2sql($film['media']['imageUrl400']);
-					}
-					if(isset($film['casts'])) {
-						$OdeonFilm->Content = Convert::raw2sql($film['casts']);
-					}
-					$OdeonFilm->write();
-				}
-				$r->push($OdeonFilm);
-			}
-		}
-		return $r->sort("Title DESC");
-	}
+                    $RestfulService = new RestfulService("http://maps.google.com/maps/api/geocode/json?address={$address}");
+                    $RestfulService_geo = $RestfulService->request();
 
-	public function updateAddress() {
-		$RestfulService = new RestfulService("https://www.odeon.co.uk/cinemas/odeon/", 315360);
+                    if (!$RestfulService_geo->isError()) {
+                        $body = Convert::json2array($RestfulService_geo->getBody());
+                        if (isset($body['results'][0]['geometry']['location']['lat']) && isset($body['results'][0]['geometry']['location']['lng'])) {
+                            $this->Address = $address;
+                            $this->lat = $body['results'][0]['geometry']['location']['lat'];
+                            $this->lng = $body['results'][0]['geometry']['location']['lng'];
+                            $this->write();
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-		$Response = $RestfulService->request($this->ID);
-		if(!$Response->isError()){
-			$html = HtmlDomParser::str_get_html($Response->getBody());
-			$cinema = $html->find('div[id="gethere"]', 0);
-			foreach($cinema->find('.span4') as $span4) {
-				foreach($span4->find('p.description') as $description) {
-					$address = implode(', ', preg_split('/\s+\s+/', trim($description->plaintext)));
+    public function getAddress()
+    {
+        if (!$this->getField('Address')) {
+        }
+        return $this->getField('Address');
+    }
 
-					$RestfulService = new RestfulService("http://maps.google.com/maps/api/geocode/json?address={$address}");
-					$RestfulService_geo = $RestfulService->request();
+    public function requireDefaultRecords()
+    {
+        parent::requireDefaultRecords();
 
-					if(!$RestfulService_geo->isError()){
-						$body = Convert::json2array($RestfulService_geo->getBody());
-						if(isset($body['results'][0]['geometry']['location']['lat']) && isset($body['results'][0]['geometry']['location']['lng'])) {
-							$this->Address = $address;
-							$this->lat = $body['results'][0]['geometry']['location']['lat'];
-							$this->lng = $body['results'][0]['geometry']['location']['lng'];
-							$this->write();
-						}
-					}
-				}
-			}
-		}
-	}
+        if (!OdeonCinema::get()->count()) {
+            $RestfulService = new RestfulService("http://www.odeon.co.uk/", 259200);
 
-	public function getAddress() {
-		if (!$this->getField('Address')) {
-
-		}
-		return $this->getField('Address');
-	}
-
-	public function requireDefaultRecords() {
-		parent::requireDefaultRecords();
-
-		if(!OdeonCinema::get()->count()) {
-
-			$RestfulService = new RestfulService("http://www.odeon.co.uk/", 259200);
-
-			$Response = $RestfulService->request();
-			if(!$Response->isError()){
-				$html = HtmlDomParser::str_get_html($Response->getBody());
-				$cinemas_select = $html->find('select[id="your-cinema"]', 0);
-				foreach($cinemas_select->find('option') as $option) {
-					$OdeonCinema = OdeonCinema::get_by_id('OdeonCinema',(int)$option->value);
-					if(!$OdeonCinema) {
-						$OdeonCinema = new OdeonCinema();
-						$OdeonCinema->ID = $option->value;
-						$OdeonCinema->Title = $option->innertext;
-						$OdeonCinema->write();
-					}
-				}
-			}
-		}
-	}
+            $Response = $RestfulService->request();
+            if (!$Response->isError()) {
+                $html = HtmlDomParser::str_get_html($Response->getBody());
+                $cinemas_select = $html->find('select[id="your-cinema"]', 0);
+                foreach ($cinemas_select->find('option') as $option) {
+                    $OdeonCinema = OdeonCinema::get_by_id('OdeonCinema', (int)$option->value);
+                    if (!$OdeonCinema) {
+                        $OdeonCinema = new OdeonCinema();
+                        $OdeonCinema->ID = $option->value;
+                        $OdeonCinema->Title = $option->innertext;
+                        $OdeonCinema->write();
+                    }
+                }
+            }
+        }
+    }
 }
